@@ -27,6 +27,11 @@ func (m *Module) Configure(app *cli.App) {
 			EnvVars: []string{"GRID_AMOUNT"},
 			Value:   1.0,
 		},
+		&cli.Float64Flag{
+			Name:    "base_price",
+			EnvVars: []string{"BASE_PRICE"},
+			Value:   0,
+		},
 	)
 }
 
@@ -36,6 +41,7 @@ func (m *Module) Install(ctx *cli.Context) fx.Option {
 			fx.Annotate(WithBotName(ctx.String("bot_name")), fx.ResultTags(`group:"options"`)),
 			fx.Annotate(WithSetp(ctx.Float64("grid_step")), fx.ResultTags(`group:"options"`)),
 			fx.Annotate(WithGridAmount(ctx.Float64("grid_amount")), fx.ResultTags(`group:"options"`)),
+			fx.Annotate(WithBasePrice(ctx.Float64("base_price")), fx.ResultTags(`group:"options"`)),
 		),
 		fx.Provide(fx.Annotate(NewConfig, fx.ParamTags(`group:"options"`))),
 		fx.Provide(fx.Annotate(NewBot, fx.As(new(Boter)))),

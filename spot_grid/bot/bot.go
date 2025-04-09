@@ -77,6 +77,7 @@ func (b *bot) Stop() error {
 
 func (b *bot) mainloop() {
 	b.logger.Info("Starting main loop...")
+	b.basePrice = b.config.BasePrice
 
 	// Get websocket token
 	token, err := b.krakenAPI.GetWebsocketToken()

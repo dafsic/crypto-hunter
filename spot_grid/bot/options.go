@@ -10,6 +10,7 @@ type Config struct {
 	QuoteCoin  string  // Quote coin for the grid
 	Step       float64 // Step size for the grid
 	GridAmount float64 // Amount of XMR per grid order
+	BasePrice  float64
 }
 
 type Option func(*Config)
@@ -29,6 +30,12 @@ func WithSetp(step float64) Option {
 func WithGridAmount(amount float64) Option {
 	return func(c *Config) {
 		c.GridAmount = amount
+	}
+}
+
+func WithBasePrice(price float64) Option {
+	return func(c *Config) {
+		c.BasePrice = price
 	}
 }
 
