@@ -5,7 +5,6 @@ import (
 	"math"
 	"sync"
 	"sync/atomic"
-	"time"
 	"unsafe"
 
 	"github.com/dafsic/crypto-hunter/kraken"
@@ -38,7 +37,7 @@ type bot struct {
 	// strategy
 	basePrice    float64
 	currentPrice float64
-	ticker       time.Time
+	timer        *Timer
 }
 
 var _ Boter = (*bot)(nil)
@@ -52,7 +51,7 @@ func NewBot(logger *zap.Logger, krakenAPI kraken.Kraken, config *Config) *bot {
 		buyOrders:  make(map[string]*Order),
 		sellOrders: make(map[string]*Order),
 		orderMux:   new(sync.Mutex),
-		ticker:     time.Now(),
+		timer:      NewTimer(config.Interval),
 	}
 }
 
@@ -193,6 +192,7 @@ func (b *bot) handleMapMessage(message map[string]any) {
 }
 
 func (b *bot) handleMethodResponse(message map[string]any) {
+	b.logger.Info("WebSocket method response", zap.Any("method", message["method"]), zap.Any("result", message["result"]), zap.Bool("success", message["success"].(bool)))
 	if success, ok := message["success"].(bool); !ok || !success {
 		b.logger.Error("WebSocket method response error", zap.Any("method", message["method"]), zap.Any("error", message["error"]))
 		b.Stop()
@@ -212,17 +212,18 @@ func (b *bot) handleTickerChannel(message map[string]any) {
 
 	if price, ok := tickerData["last"].(float64); ok {
 		b.currentPrice = price
-		b.logger.Info("Price updated", zap.Float64("price", b.currentPrice))
 	}
 
 	if math.Abs(b.currentPrice-b.getBasePrice()) > b.config.Step {
 		b.logger.Info("Price exceeded step", zap.Float64("current_price", b.currentPrice), zap.Float64("base_price", b.basePrice))
-		now := time.Now()
-		if now.Sub(b.ticker) > time.Minute {
-			b.ticker = now
+		b.timer.Start()
+		if b.timer.isExpired() {
+			b.timer.Reset()
 			b.setBasePrice(b.currentPrice)
 			b.rebaseOrders()
 		}
+	} else {
+		b.timer.Reset()
 	}
 
 }
@@ -238,7 +239,8 @@ func (b *bot) handleExecutionsChannel(message map[string]any) {
 	for _, execution := range data {
 		exec, ok := execution.(map[string]any)
 		if !ok {
-			continue
+			b.logger.Error("WebSocket execution message error", zap.String("error", "execution is not a map"))
+			b.Stop()
 		}
 
 		orderID := exec["order_id"].(string)
@@ -251,12 +253,12 @@ func (b *bot) handleExecutionsChannel(message map[string]any) {
 			ID:      orderID,
 			Pair:    symbol,
 			Price:   price,
-			Amount:  b.config.GridAmount,
+			Amount:  b.config.Amount,
 			Userref: int(userref),
 			Status:  status,
 			Side:    side,
 		}
-		b.logger.Info("New order execution",
+		b.logger.Info("Order execution",
 			zap.String("order_id", order.ID),
 			zap.String("symbol", order.Pair),
 			zap.String("side", order.Side),
@@ -302,10 +304,10 @@ func (b *bot) rebaseOrders() {
 	}
 
 	// place new orders
-	b.addOrder(kraken.Buy, 1)
-	b.addOrder(kraken.Buy, 3)
-	b.addOrder(kraken.Sell, 1)
-	b.addOrder(kraken.Sell, 3)
+	for _, v := range b.config.Multipliers {
+		b.addOrder(kraken.Buy, v)
+		b.addOrder(kraken.Sell, v)
+	}
 }
 
 func (b *bot) addOrder(side kraken.Side, multiplier int) {
@@ -320,7 +322,7 @@ func (b *bot) addOrder(side kraken.Side, multiplier int) {
 		b.config.BaseCoin+"/"+b.config.QuoteCoin,
 		b.token,
 		side,
-		b.config.GridAmount,
+		b.config.Amount,
 		price,
 		multiplier,
 	)

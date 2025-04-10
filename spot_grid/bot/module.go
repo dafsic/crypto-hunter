@@ -15,7 +15,7 @@ func (m *Module) Configure(app *cli.App) {
 		&cli.StringFlag{
 			Name:    "bot_name",
 			EnvVars: []string{"BOT_NAME"},
-			Value:   "xmrbtc_bot",
+			Value:   "XMR/BTC",
 		},
 		&cli.Float64Flag{
 			Name:    "grid_step",
