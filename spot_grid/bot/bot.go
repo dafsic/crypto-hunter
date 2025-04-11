@@ -25,9 +25,8 @@ type bot struct {
 	config   *Config
 	logger   *zap.Logger
 	// account info
-	buyOrders  map[string]*Order
-	sellOrders map[string]*Order
-	orderMux   *sync.Mutex
+	orders   map[string]*Order
+	orderMux *sync.Mutex
 	// websocket
 	publicWS  *websocket.Socket
 	privateWS *websocket.Socket
@@ -45,13 +44,12 @@ var _ Boter = (*bot)(nil)
 // NewBot creates a new bot
 func NewBot(logger *zap.Logger, krakenAPI kraken.Kraken, config *Config) *bot {
 	return &bot{
-		config:     config,
-		logger:     logger,
-		krakenAPI:  krakenAPI,
-		buyOrders:  make(map[string]*Order),
-		sellOrders: make(map[string]*Order),
-		orderMux:   new(sync.Mutex),
-		timer:      NewTimer(config.Interval),
+		config:    config,
+		logger:    logger,
+		krakenAPI: krakenAPI,
+		orders:    make(map[string]*Order),
+		orderMux:  new(sync.Mutex),
+		timer:     NewTimer(config.Interval),
 	}
 }
 
@@ -122,7 +120,6 @@ func (b *bot) newSocket(url string) *websocket.Socket {
 
 	socket.OnDisconnected = func(err error, s *websocket.Socket) {
 		b.logger.Error("WebSocket disconnected", zap.String("url", s.Url), zap.Error(err))
-		b.Stop()
 	}
 
 	socket.OnBinaryMessage = b.OnBinaryMessage
@@ -268,16 +265,11 @@ func (b *bot) handleExecutionsChannel(message map[string]any) {
 		)
 		switch status {
 		case "new":
-
-			if side == string(kraken.Buy) {
-				b.buyOrders[orderID] = order
-			} else {
-				b.sellOrders[orderID] = order
-			}
+			b.orders[orderID] = order
 		case "filled":
-			b.handleOrderFilled(orderID, kraken.Side(side))
+			b.handleOrderFilled(orderID)
 		case "canceled":
-			b.handleOrderCanceled(orderID, kraken.Side(side))
+			b.handleOrderCanceled(orderID)
 		}
 	}
 }
@@ -288,10 +280,7 @@ func (b *bot) rebaseOrders() {
 
 	// cancel all orders
 	var orderIDs []string
-	for orderID := range b.buyOrders {
-		orderIDs = append(orderIDs, orderID)
-	}
-	for orderID := range b.sellOrders {
+	for orderID := range b.orders {
 		orderIDs = append(orderIDs, orderID)
 	}
 
@@ -332,29 +321,21 @@ func (b *bot) addOrder(side kraken.Side, multiplier int) {
 	}
 }
 
-func (b *bot) handleOrderFilled(orderID string, side kraken.Side) {
-	var multiplier int
-	if side == kraken.Buy {
-		multiplier = b.buyOrders[orderID].Userref
-	} else {
-		multiplier = b.sellOrders[orderID].Userref
-	}
+func (b *bot) handleOrderFilled(orderID string) {
+	multiplier := b.orders[orderID].Userref
+	side := b.orders[orderID].Side
 
-	b.removeOrder(orderID, side)
+	b.removeOrder(orderID)
 
-	b.addOrder(side.Opposite(), multiplier)
+	b.addOrder(kraken.NewSide(side).Opposite(), multiplier)
 }
 
-func (b *bot) handleOrderCanceled(orderID string, side kraken.Side) {
-	b.removeOrder(orderID, side)
+func (b *bot) handleOrderCanceled(orderID string) {
+	b.removeOrder(orderID)
 }
 
-func (b *bot) removeOrder(orderID string, side kraken.Side) {
-	if side == kraken.Buy {
-		delete(b.buyOrders, orderID)
-	} else {
-		delete(b.sellOrders, orderID)
-	}
+func (b *bot) removeOrder(orderID string) {
+	delete(b.orders, orderID)
 }
 
 func (b *bot) getBasePrice() float64 {

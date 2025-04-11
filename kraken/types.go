@@ -79,6 +79,36 @@ const (
 	Sell Side = "sell"
 )
 
+func NewSide(side string) Side {
+	switch side {
+	case "buy":
+		return Buy
+	case "sell":
+		return Sell
+	default:
+		return ""
+	}
+}
+
+func (side Side) String() string {
+	switch side {
+	case Buy:
+		return "buy"
+	case Sell:
+		return "sell"
+	default:
+		return ""
+	}
+}
+
+func (side Side) IsBuy() bool {
+	return side == Buy
+}
+func (side Side) IsSell() bool {
+	return side == Sell
+}
+
+// Opposite returns the opposite side
 func (side Side) Opposite() Side {
 	if side == Buy {
 		return Sell
