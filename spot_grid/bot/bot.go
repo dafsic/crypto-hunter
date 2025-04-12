@@ -251,20 +251,22 @@ func (b *bot) handleExecutionsChannel(message map[string]any) {
 			b.Stop()
 		}
 
-		orderID := exec["order_id"].(string)
-		status := exec["exec_type"].(string)
-		userref := exec["order_userref"].(float64)
-		symbol, _ := exec["symbol"].(string)
-		side, _ := exec["side"].(string)
-		price, _ := exec["limit_price"].(float64)
 		order := &Order{
-			ID:      orderID,
-			Pair:    symbol,
-			Price:   price,
+			ID:      exec["order_id"].(string),
+			Status:  exec["exec_type"].(string),
+			Userref: int(exec["order_userref"].(float64)),
 			Amount:  b.config.Amount,
-			Userref: int(userref),
-			Status:  status,
-			Side:    side,
+		}
+
+		if symbol, ok := exec["symbol"].(string); ok {
+			order.Pair = symbol
+		}
+
+		if side, ok := exec["side"].(string); ok {
+			order.Side = side
+		}
+		if price, ok := exec["limit_price"].(float64); ok {
+			order.Price = price
 		}
 		b.logger.Info("Order execution",
 			zap.String("order_id", order.ID),
@@ -274,13 +276,12 @@ func (b *bot) handleExecutionsChannel(message map[string]any) {
 			zap.String("status", order.Status),
 			zap.Int("userref", order.Userref),
 		)
-		switch status {
-		case "new":
-			b.orders[orderID] = order
+		b.orders[order.ID] = order
+		switch order.Status {
 		case "filled":
-			b.handleOrderFilled(orderID)
+			b.handleOrderFilled(order.ID)
 		case "canceled":
-			b.handleOrderCanceled(orderID)
+			b.handleOrderCanceled(order.ID)
 		}
 	}
 }
