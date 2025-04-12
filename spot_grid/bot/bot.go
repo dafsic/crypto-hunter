@@ -28,8 +28,9 @@ type bot struct {
 	orders   map[string]*Order
 	orderMux *sync.Mutex
 	// websocket
-	publicWS  *websocket.Socket
-	privateWS *websocket.Socket
+	publicWS         *websocket.Socket
+	privateWS        *websocket.Socket
+	reconnectCounter int
 	// kraken
 	krakenAPI kraken.Kraken
 	token     string
@@ -119,7 +120,17 @@ func (b *bot) newSocket(url string) *websocket.Socket {
 	}
 
 	socket.OnDisconnected = func(err error, s *websocket.Socket) {
-		b.logger.Error("WebSocket disconnected", zap.String("url", s.Url), zap.Error(err))
+		if b.reconnectCounter < 3 {
+			b.logger.Info("WebSocket disconnected, reconnecting...", zap.String("url", s.Url), zap.Int("attempt", b.reconnectCounter))
+			b.reconnectCounter++
+			s.Connect()
+			return
+		} else {
+			b.logger.Info("WebSocket disconnected, stopping...", zap.String("url", s.Url), zap.Int("attempt", b.reconnectCounter))
+			b.reconnectCounter = 0
+			s.Conn.Close()
+			return
+		}
 	}
 
 	socket.OnBinaryMessage = b.OnBinaryMessage

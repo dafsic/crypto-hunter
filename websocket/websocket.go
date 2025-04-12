@@ -3,8 +3,10 @@ package websocket
 import (
 	"crypto/tls"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
+	"reflect"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -62,7 +64,6 @@ func (socket *Socket) Connect() {
 	socket.setConnectionOptions()
 
 	socket.Conn, resp, err = socket.WebsocketDialer.Dial(socket.Url, socket.RequestHeader)
-
 	if err != nil {
 		socket.logger.Error("Error while connecting to server ", zap.Error(err))
 		if resp != nil {
@@ -109,10 +110,7 @@ func (socket *Socket) Connect() {
 		for {
 			messageType, message, err := socket.Conn.ReadMessage()
 			if err != nil {
-				socket.logger.Error("socket read error", zap.Error(err))
-				if socket.OnDisconnected != nil {
-					socket.OnDisconnected(err, socket)
-				}
+				socket.handleReadError(err)
 				return
 			}
 			//socket.logger.Info("socket recv", zap.ByteString("message", message))
@@ -152,5 +150,30 @@ func (socket *Socket) Close() {
 	if err != nil {
 		socket.logger.Error("socket write close error", zap.Error(err))
 	}
-	socket.Conn.Close()
+	// Don't call socket.Conn.Close() here, as it will be called in the close handler
+	//socket.Conn.Close()
+}
+
+func (socket *Socket) handleReadError(err error) {
+	switch e := err.(type) {
+	case *websocket.CloseError:
+		if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+			socket.logger.Info("WebSocket closed normally", zap.Int("code", e.Code))
+		} else {
+			socket.logger.Error("WebSocket closed with error", zap.Error(err), zap.Int("code", e.Code))
+			if socket.OnDisconnected != nil {
+				socket.OnDisconnected(err, socket)
+			}
+		}
+	case *net.OpError:
+		socket.logger.Error("Network operation error", zap.Error(err), zap.String("op", e.Op), zap.String("net", e.Net))
+		if socket.OnDisconnected != nil {
+			socket.OnDisconnected(err, socket)
+		}
+	default:
+		socket.logger.Error("WebSocket read error", zap.Error(err), zap.String("type", reflect.TypeOf(err).String()))
+		if socket.OnDisconnected != nil {
+			socket.OnDisconnected(err, socket)
+		}
+	}
 }

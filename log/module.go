@@ -2,6 +2,7 @@ package log
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/urfave/cli/v2"
 	"go.uber.org/fx"
@@ -41,7 +42,10 @@ func (m *Module) Install(ctx *cli.Context) fx.Option {
 			fx.Annotate(
 				NewLogger,
 				fx.OnStop(func(ctx context.Context, l *zap.Logger) error {
-					return l.Sync()
+					if e := l.Sync(); e != nil {
+						return fmt.Errorf("%w: could not sync before exit", e)
+					}
+					return nil
 				}),
 			),
 		),
