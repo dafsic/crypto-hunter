@@ -221,6 +221,7 @@ func (b *bot) handleTickerChannel(message map[string]any) {
 	if price, ok := tickerData["last"].(float64); ok {
 		b.currentPrice = price
 	}
+	b.logger.Info("WebSocket ticker message", zap.Float64("current price", b.currentPrice), zap.Float64("base price", b.getBasePrice()))
 
 	if math.Abs(b.currentPrice-b.getBasePrice()) > b.config.Step {
 		b.logger.Info("Price exceeded step", zap.Float64("current_price", b.currentPrice), zap.Float64("base_price", b.basePrice))
