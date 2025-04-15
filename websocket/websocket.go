@@ -146,12 +146,16 @@ func (socket *Socket) send(messageType int, data []byte) error {
 }
 
 func (socket *Socket) Close() {
+	if socket.Conn == nil {
+		return
+	}
+
 	err := socket.send(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 	if err != nil {
 		socket.logger.Error("socket write close error", zap.Error(err))
 	}
 	// Don't call socket.Conn.Close() here, as it will be called in the close handler
-	//socket.Conn.Close()
+	// socket.Conn.Close()
 }
 
 func (socket *Socket) handleReadError(err error) {

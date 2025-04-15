@@ -42,7 +42,7 @@ type Kraken interface {
 	SubscribeTickers(socket *websocket.Socket, pairs ...string) error
 	SubscribeBalances(socket *websocket.Socket, token string) error
 	SubscribeExecutions(socket *websocket.Socket, token string) error
-	AddOrderWithWebsocket(socket *websocket.Socket, pair, token string, side Side, orderQty, price float64, userref int) error
+	AddOrderWithWebsocket(socket *websocket.Socket, clientOrdeID, pair, token string, side Side, orderQty, price float64) error
 	CancelOrderWithWebsocket(socket *websocket.Socket, token string, orderIDs []string) error
 }
 
@@ -139,21 +139,20 @@ func (api *krakenAPI) SubscribeExecutions(socket *websocket.Socket, token string
 
 func (api *krakenAPI) AddOrderWithWebsocket(
 	socket *websocket.Socket,
-	pair, token string,
+	clientOrdeID, pair, token string,
 	side Side,
 	orderQty, price float64,
-	userref int,
 ) error {
 	req := &WebsocketRequest{
 		Method: "add_order",
 		Params: map[string]any{
-			"order_type":    "limit",
-			"side":          side,
-			"limit_price":   price,
-			"order_qty":     orderQty,
-			"symbol":        pair,
-			"token":         token,
-			"order_userref": userref,
+			"order_type":  "limit",
+			"side":        side,
+			"limit_price": price,
+			"order_qty":   orderQty,
+			"symbol":      pair,
+			"token":       token,
+			"cl_ord_id":   clientOrdeID,
 		},
 	}
 

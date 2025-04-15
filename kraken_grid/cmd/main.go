@@ -5,8 +5,9 @@ import (
 
 	"github.com/dafsic/crypto-hunter/app"
 	"github.com/dafsic/crypto-hunter/kraken"
+	"github.com/dafsic/crypto-hunter/kraken_grid/bot"
+	"github.com/dafsic/crypto-hunter/kraken_grid/database"
 	"github.com/dafsic/crypto-hunter/log"
-	"github.com/dafsic/crypto-hunter/spot_grid/bot"
 )
 
 func main() {
@@ -14,6 +15,7 @@ func main() {
 	app.Install(
 		&log.Module{},
 		&kraken.Module{},
+		&database.Module{},
 		&bot.Module{},
 	)
 	if err := app.Run(); err != nil {

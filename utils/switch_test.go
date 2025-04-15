@@ -1,28 +1,21 @@
 package utils_test
 
 import (
+	"sync/atomic"
+	"testing"
+
 	utils "github.com/dafsic/crypto-hunter/utils"
 )
 
-import (
-	"testing"
-)
-
 func TestSwitch(t *testing.T) {
-	var s utils.Switch
+	var s atomic.Int32
 
-	// go func() {
-	// 	for i := 0; i < 10; i++ {
-	// 		s.On()
-	// 		time.Sleep(1)
-	// 		s.Off()
-	// 		time.Sleep(1)
-	// 	}
-	// }()
-
-	s.On()
-	if s.State() != utils.On {
-		t.Error(s.State())
+	if utils.SwitcherStatus(&s) != utils.Off {
+		t.Error("expected Off")
 	}
 
+	utils.TurnOn(&s)
+	if utils.SwitcherStatus(&s) != utils.On {
+		t.Error("expected On")
+	}
 }

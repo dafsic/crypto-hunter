@@ -1,16 +1,6 @@
-package bot
+package utils
 
 import "time"
-
-type Order struct {
-	ID      string  `json:"id"`
-	Pair    string  `json:"pair"`
-	Price   float64 `json:"price"`
-	Amount  float64 `json:"amount"`
-	Userref int     `json:"order_userref"`
-	Status  string  `json:"order_status"`
-	Side    string  `json:"side"`
-}
 
 type Timer struct {
 	interval time.Duration
@@ -35,7 +25,7 @@ func (t *Timer) Reset() {
 	t.flag = false
 }
 
-func (t *Timer) isExpired() bool {
+func (t *Timer) IsExpired() bool {
 	if !t.flag {
 		return false
 	}

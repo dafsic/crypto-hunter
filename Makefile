@@ -29,22 +29,22 @@ GO_LDFLAGS += -X '$(PROJECT)/app.version=$(GIT_TAG)'
 GO_LDFLAGS += -X '$(PROJECT)/app.git_tree_state=$(GIT_DIRTY)'
 
 .PHONY: default
-default: check spot_grid
+default: check kraken_grid
 
 # --------------------------------------------------------------------------------
 # compile
 
-.PHONY: check spot_grid
+.PHONY: check kraken_grid_grid
 
 check: ## Check working tree is clean or not
 ifneq ($(shell git status -s),)
 	$(error You must run git commit)
 endif
 
-spot_grid: $(BINDIR)/spot_grid ## Compile the binary
+kraken_grid: $(BINDIR)/kraken_grid ## Compile the binary
 
-$(BINDIR)/spot_grid: $(shell find ./spot_grid -type f -name '*.go' -print) go.mod go.sum
-	CGO_ENABLED=$(CGO_ENABLED) go build -trimpath -ldflags "$(GO_LDFLAGS)" -o $(BINDIR)/spot_grid ./spot_grid/cmd
+$(BINDIR)/kraken_grid: $(shell find ./kraken_grid -type f -name '*.go' -print) go.mod go.sum
+	CGO_ENABLED=$(CGO_ENABLED) go build -trimpath -ldflags "$(GO_LDFLAGS)" -o $(BINDIR)/kraken_grid ./kraken_grid/cmd
 
 # --------------------------------------------------------------------------------
 # test

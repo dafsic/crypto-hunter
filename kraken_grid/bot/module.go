@@ -6,7 +6,7 @@ import (
 	"go.uber.org/fx"
 )
 
-const ModuleName = "bot"
+const ModuleName = "kraken_grid"
 
 type Module struct{}
 
@@ -44,15 +44,15 @@ func (m *Module) Install(ctx *cli.Context) fx.Option {
 			fx.Annotate(WithBasePrice(ctx.Float64("base_price")), fx.ResultTags(`group:"options"`)),
 		),
 		fx.Provide(fx.Annotate(NewConfig, fx.ParamTags(`group:"options"`))),
-		fx.Provide(fx.Annotate(NewBot, fx.As(new(Boter)))),
+		fx.Provide(fx.Annotate(NewBot, fx.As(new(Bot)))),
 		fx.Invoke(RunBot),
 	)
 }
 
-func RunBot(bot Boter, lc fx.Lifecycle) {
+func RunBot(bot Bot, lc fx.Lifecycle) {
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			return bot.Start()
+			return bot.Run()
 		},
 		OnStop: func(context.Context) error {
 			return bot.Stop()

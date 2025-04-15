@@ -8,40 +8,39 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 	"unsafe"
 
 	"github.com/google/uuid"
 )
 
-// ConcatStrings 将多个字符串合成一个字符串数组
+// ConcatStrings concatenates multiple strings into a slice of strings.
 func ConcatStrings(elems ...string) []string {
 	return elems
 }
 
-// StrSplit 使用逗号或者分号对字符串进行切割
+// ConcatString concatenates multiple strings into a single string.
 func StrSplit(s string, p ...rune) []string {
 	return strings.FieldsFunc(s, func(c rune) bool { return c == ',' || c == ';' })
 }
 
-// StringToBytes 直接将字符串转换成[]byte，无内存copy
+// StringToBytes converts a string to a byte slice without copying the data.
 func StringToBytes(s string) []byte {
 	stringHeader := unsafe.StringData(s)
 	return unsafe.Slice(stringHeader, len(s))
 }
 
-// BytesToString 直接将[]byte转成字符串，无内存copy
+// BytesToString converts a byte slice to a string without copying the data.
 func BytesToString(b []byte) string {
 	return *(*string)(unsafe.Pointer(&b))
 }
 
-// CompressStr 压缩字符串，去掉所有空白符
+// CompressStr removes all whitespace characters from a string.
 func CompressStr(str string) string {
 	if str == "" {
 		return ""
 	}
-	//匹配一个或多个空白符的正则表达式
-	reg := regexp.MustCompile("\\s+")
+	// \s matches any whitespace character (space, tab, newline, etc.)
+	reg := regexp.MustCompile(`\\s+`)
 	return reg.ReplaceAllString(str, "")
 }
 
@@ -67,12 +66,11 @@ func FormatFloat(value float64, precision float64) float64 {
 	return math.Round(value*precision) / precision
 }
 
-// 获取标准的uuid字符串
-func GetUUID() string {
+func GenerateUUID() string {
 	return uuid.New().String()
 }
 
-// 生成指定长度的随机字符串
+// GenerateRandomString generates a random string of the specified length.
 func GenerateRandomString(length int) string {
 	chars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	result := make([]byte, length)
@@ -82,28 +80,7 @@ func GenerateRandomString(length int) string {
 	return string(result)
 }
 
-// 将int64毫秒级时间戳转换为"2006-01-02 15:04:05.000"GTC时间格式
-func Int64ToTimeFormat(timestamp int64) string {
-	sec := timestamp / 1000
-	nsec := (timestamp % 1000) * int64(time.Millisecond)
-	t := time.Unix(sec, nsec)
-	return t.Format("2006-01-02 15:04:05.000")
-}
-
-// 将int64毫秒级时间间隔转换为时分秒的格式
-func Int64ToTimeDuration(timestamp int64) string {
-	d := time.Duration(timestamp) * time.Millisecond
-	// 提取小时、分钟和秒
-	hours := d / time.Hour
-	d %= time.Hour
-	minutes := d / time.Minute
-	d %= time.Minute
-	seconds := d / time.Second
-
-	return strconv.Itoa(int(hours)) + "时" + strconv.Itoa(int(minutes)) + "分" + strconv.Itoa(int(seconds)) + "秒"
-}
-
-// 获取本机所有ip
+// GetAllLocalIPs retrieves all local IP addresses of the machine.
 func GetAllLocalIPs() ([]string, error) {
 	ipArr := make([]string, 0)
 	addrs, err := net.InterfaceAddrs()
@@ -111,7 +88,8 @@ func GetAllLocalIPs() ([]string, error) {
 		return ipArr, err
 	}
 	for _, address := range addrs {
-		// 检查ip地址判断是否回环地址
+		// Check if the address is an IP address and not a loopback address
+		// and if it is an IPv4 address
 		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 			if ipnet.IP.To4() != nil {
 				ipArr = append(ipArr, ipnet.IP.String())

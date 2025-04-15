@@ -2,21 +2,19 @@ package utils
 
 import "sync/atomic"
 
-type Switch int32
-
 const (
-	Off Switch = 0
-	On  Switch = 1
+	On  = 1
+	Off = 0
 )
 
-func (s *Switch) On() {
-	atomic.CompareAndSwapInt32((*int32)(s), 0, 1)
+func TurnOn(s *atomic.Int32) bool {
+	return s.CompareAndSwap(Off, On)
 }
 
-func (s *Switch) Off() {
-	atomic.CompareAndSwapInt32((*int32)(s), 1, 0)
+func TurnOff(s *atomic.Int32) bool {
+	return s.CompareAndSwap(On, Off)
 }
 
-func (s *Switch) State() Switch {
-	return Switch(atomic.LoadInt32((*int32)(s)))
+func SwitcherStatus(s *atomic.Int32) int32 {
+	return s.Load()
 }
