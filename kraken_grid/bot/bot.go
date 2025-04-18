@@ -1,13 +1,14 @@
 package bot
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/dafsic/crypto-hunter/kraken"
-	"github.com/dafsic/crypto-hunter/kraken_grid/database"
+	"github.com/dafsic/crypto-hunter/kraken_grid/dao"
 	"github.com/dafsic/crypto-hunter/kraken_grid/model"
 	"github.com/dafsic/crypto-hunter/utils"
 	"github.com/dafsic/crypto-hunter/websocket"
@@ -18,8 +19,8 @@ type Bot interface {
 	Name() string
 	Run() error
 	Stop() error
-	// Status() string
-	// Errors() <-chan error
+	Done() <-chan struct{}
+	Err() error
 }
 
 type Grid struct {
@@ -27,25 +28,28 @@ type Grid struct {
 	config *Config
 	logger *zap.Logger
 	// orders
-	db database.Database
+	dao dao.Dao
 	// websockets
 	publicWS  *websocket.Socket
 	privateWS *websocket.Socket
 	// kraken
 	krakenAPI kraken.Kraken
 	token     string
+	// context
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 var _ Bot = (*Grid)(nil)
 
 // NewBot creates a new bot
-func NewBot(logger *zap.Logger, config *Config, krakenAPI kraken.Kraken, db database.Database) *Grid {
+func NewBot(logger *zap.Logger, config *Config, krakenAPI kraken.Kraken, dao dao.Dao) *Grid {
 	return &Grid{
 		status:    new(atomic.Int32),
 		config:    config,
 		logger:    logger,
 		krakenAPI: krakenAPI,
-		db:        db,
+		dao:       dao,
 	}
 }
 
@@ -53,8 +57,17 @@ func (b *Grid) Name() string {
 	return b.config.name
 }
 
+func (b *Grid) Done() <-chan struct{} {
+	return b.ctx.Done()
+}
+
+func (b *Grid) Err() error {
+	return b.ctx.Err()
+}
+
 func (b *Grid) Run() error {
 	b.logger.Info("Starting bot...", zap.String("name", b.config.name))
+	b.ctx, b.cancel = context.WithCancel(context.Background())
 	utils.TurnOn(b.status)
 	go b.mainloop()
 	return nil
@@ -213,8 +226,8 @@ func (b *Grid) handleTickerChannel(message map[string]any) {
 	)
 
 	centerPrice := b.getCenterPrice()
-	if math.Abs(b.config.currentPrice-centerPrice) > b.config.step {
-		b.logger.Info("Price exceeded step",
+	if math.Abs(b.config.currentPrice-centerPrice) > float64(b.config.multipliers[len(b.config.multipliers)-2])*b.config.step {
+		b.logger.Info("Price exceeded threshold",
 			zap.Float64("current price", b.config.currentPrice),
 			zap.Float64("center price", centerPrice),
 		)
@@ -231,7 +244,6 @@ func (b *Grid) handleTickerChannel(message map[string]any) {
 }
 
 func (b *Grid) handleExecutionsChannel(message map[string]any) {
-	typ := message["type"].(string)
 	data, ok := message["data"].([]any)
 	if !ok {
 		return
@@ -240,56 +252,42 @@ func (b *Grid) handleExecutionsChannel(message map[string]any) {
 	for _, execution := range data {
 		exec := execution.(map[string]any) // assume execution is a map, panic if not
 		orderID := exec["order_id"].(string)
-		order, err := b.db.GetOrder(orderID)
+		userref := exec["order_userref"].(float64)
+		order, err := b.dao.GetOrder(b.ctx, int(userref))
 		if err != nil {
-			if err != database.ErrNotFound {
-				order = b.newOrder()
-			} else {
-				b.logger.Error("Failed to get order from database", zap.String("order_id", orderID), zap.Error(err))
-				return
-			}
+			b.logger.Error("Failed to get order from database", zap.String("order_id", orderID), zap.Error(err))
+			b.Stop()
+			return
 		}
-		order.Status = exec["exec_type"].(string)
-		if symbol, ok := exec["symbol"].(string); ok && symbol != "" {
-			order.Pair = symbol
-		}
-		if side, ok := exec["side"].(string); ok && side != "" {
-			order.Side = side
-		}
-		if price, ok := exec["limit_price"].(float64); ok && price > 0 {
-			order.Price = price
-		}
-		// TODO: multiplier is not in the execution message, so we need to get it from the order
-		// So, we need to get the order from the real database
 
-		if typ == "snapshot" {
-			// We don't need to add the order to the database if we are using a real database
-			b.db.CreateOrder(order)
-		} else {
-			b.db.UpdateOrder(order)
+		order.Status = exec["exec_type"].(string)
+		err = b.dao.UpdateOrder(b.ctx, order.ID, map[string]any{"status": order.Status}) // Update order in database
+		if err != nil {
+			b.logger.Error("Failed to update order in database", zap.String("order_id", orderID), zap.Error(err))
+			b.Stop()
+			return
 		}
+		b.logger.Info("Order update",
+			zap.String("order_id", order.OrderID),
+			zap.String("status", order.Status),
+			zap.String("side", order.Side),
+			zap.Float64("price", order.Price),
+			zap.String("pair", order.Pair),
+			zap.Int("multiplier", order.Multiplier),
+		)
 
 		switch order.Status {
 		case "filled":
 			b.handleOrderFilled(order)
 		default: // "new", "cancelled", "pending"
-			b.logger.Info("Order update",
-				zap.String("order_id", order.OrderID),
-				zap.String("status", order.Status),
-				zap.String("side", order.Side),
-				zap.Float64("price", order.Price),
-				zap.String("pair", order.Pair),
-				zap.Int("multiplier", order.Multiplier),
-				zap.String("type", typ),
-			)
 		}
 	}
 }
 
 func (b *Grid) rebaseOrders() {
 	// cancel all orders
-	orders, err := b.db.GetOpenOrders(b.config.name)
-	if err != nil && err != database.ErrNotFound {
+	orders, err := b.dao.GetOpenOrders(b.ctx, b.config.name)
+	if err != nil && err != dao.ErrNotFound {
 		b.logger.Error("Failed to get open orders from database", zap.Error(err))
 		b.Stop()
 		return
@@ -331,7 +329,7 @@ func (b *Grid) addOrder(side kraken.Side, basePrice float64, multiplier int) {
 	order.Status = "pending"
 
 	// Save order to database
-	err := b.db.CreateOrder(order)
+	err := b.dao.CreateOrder(b.ctx, order)
 	if err != nil {
 		b.logger.Error("Failed to create order in database", zap.Error(err))
 		b.Stop()
@@ -340,12 +338,12 @@ func (b *Grid) addOrder(side kraken.Side, basePrice float64, multiplier int) {
 
 	err = b.krakenAPI.AddOrderWithWebsocket(
 		b.privateWS,
-		order.UUID,
 		order.Pair,
 		b.token,
 		side,
 		order.Amount,
 		order.Price,
+		order.ID,
 	)
 	if err != nil {
 		b.logger.Error("Failed to place new order", zap.Error(err))
@@ -359,7 +357,6 @@ func (b *Grid) handleOrderFilled(order *model.Order) {
 
 func (b *Grid) newOrder() *model.Order {
 	return &model.Order{
-		UUID:     utils.GenerateUUID(),
 		Bot:      b.config.name,
 		Exchange: "kraken",
 	}
