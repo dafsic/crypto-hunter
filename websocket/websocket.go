@@ -2,7 +2,6 @@ package websocket
 
 import (
 	"crypto/tls"
-	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -22,8 +21,6 @@ type Socket struct {
 	OnConnected       func(socket *Socket)
 	OnTextMessage     func(message string, socket *Socket)
 	OnBinaryMessage   func(data []byte, socket *Socket)
-	OnConnectError    func(err error, socket *Socket)
-	OnDisconnected    func(err error, socket *Socket)
 	OnPingReceived    func(data string, socket *Socket)
 	OnPongReceived    func(data string, socket *Socket)
 	sendMu            *sync.Mutex // Prevent "concurrent write to websocket connection"
@@ -60,18 +57,11 @@ func (socket *Socket) setConnectionOptions() {
 
 func (socket *Socket) Connect() {
 	var err error
-	var resp *http.Response
 	socket.setConnectionOptions()
 
-	socket.Conn, resp, err = socket.WebsocketDialer.Dial(socket.Url, socket.RequestHeader)
+	socket.Conn, _, err = socket.WebsocketDialer.Dial(socket.Url, socket.RequestHeader)
 	if err != nil {
-		socket.logger.Error("Error while connecting to server ", zap.Error(err))
-		if resp != nil {
-			socket.logger.Error("HTTP Response ", zap.Int("code", resp.StatusCode), zap.String("status", resp.Status))
-		}
-		if socket.OnConnectError != nil {
-			socket.OnConnectError(err, socket)
-		}
+		socket.logger.Panic("WebSocket connection error", zap.String("url", socket.Url), zap.Error(err))
 		return
 	}
 
@@ -95,15 +85,6 @@ func (socket *Socket) Connect() {
 			socket.OnPongReceived(appData, socket)
 		}
 		return defaultPongHandler(appData)
-	})
-
-	defaultCloseHandler := socket.Conn.CloseHandler()
-	socket.Conn.SetCloseHandler(func(code int, text string) error {
-		result := defaultCloseHandler(code, text)
-		if socket.OnDisconnected != nil {
-			socket.OnDisconnected(errors.New(text), socket)
-		}
-		return result
 	})
 
 	go func() {
@@ -163,21 +144,17 @@ func (socket *Socket) handleReadError(err error) {
 	case *websocket.CloseError:
 		if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 			socket.logger.Info("WebSocket closed normally", zap.Int("code", e.Code))
-		} else {
-			socket.logger.Error("WebSocket closed with error", zap.Error(err), zap.Int("code", e.Code))
-			if socket.OnDisconnected != nil {
-				socket.OnDisconnected(err, socket)
-			}
+			socket.Conn.Close()
+			return
 		}
+		socket.logger.Error("WebSocket read error, reconnecting...", zap.Error(err), zap.Int("code", e.Code))
+		socket.Connect()
+
 	case *net.OpError:
-		socket.logger.Error("Network operation error", zap.Error(err), zap.String("op", e.Op), zap.String("net", e.Net))
-		if socket.OnDisconnected != nil {
-			socket.OnDisconnected(err, socket)
-		}
+		socket.logger.Error("Network read error, reconnecting...", zap.Error(err), zap.String("op", e.Op), zap.String("net", e.Net))
+		socket.Connect()
 	default:
-		socket.logger.Error("WebSocket read error", zap.Error(err), zap.String("type", reflect.TypeOf(err).String()))
-		if socket.OnDisconnected != nil {
-			socket.OnDisconnected(err, socket)
-		}
+		socket.logger.Error("WebSocket read error, reconnecting...", zap.Error(err), zap.String("type", reflect.TypeOf(err).String()))
+		socket.Connect()
 	}
 }

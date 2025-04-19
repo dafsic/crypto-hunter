@@ -8,6 +8,7 @@ import (
 	"github.com/dafsic/crypto-hunter/kraken_grid/bot"
 	"github.com/dafsic/crypto-hunter/kraken_grid/dao"
 	"github.com/dafsic/crypto-hunter/log"
+	"github.com/dafsic/crypto-hunter/postgres"
 )
 
 func main() {
@@ -17,6 +18,7 @@ func main() {
 		&kraken.Module{},
 		&dao.Module{},
 		&bot.Module{},
+		&postgres.Module{},
 	)
 	if err := app.Run(); err != nil {
 		fmt.Println(err)

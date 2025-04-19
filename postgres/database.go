@@ -27,13 +27,12 @@ type DatabaseImpl struct {
 
 func NewDatabase(logger *zap.Logger, config *Config) *DatabaseImpl {
 	db, _ := sqlx.Open(config.driver, config.dsn)
-
 	return &DatabaseImpl{db: db, dsn: config.dsn, driver: config.driver}
 }
 
 func (impl *DatabaseImpl) Ping() error {
 	if err := impl.db.Ping(); err != nil {
-		return fmt.Errorf("failed to ping database: %w", err)
+		return fmt.Errorf("failed to ping database(%s): %w", impl.dsn, err)
 	}
 	return nil
 }

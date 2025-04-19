@@ -55,7 +55,8 @@ func RunBot(bot Bot, lc fx.Lifecycle) {
 			return bot.Run()
 		},
 		OnStop: func(context.Context) error {
-			return bot.Stop()
+			bot.Stop()
+			return nil
 		},
 	})
 }

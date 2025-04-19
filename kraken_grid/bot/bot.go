@@ -3,6 +3,8 @@ package bot
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
 	"sync/atomic"
 	"unsafe"
@@ -15,12 +17,17 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	statusRunning string = "running"
+	statusStopped string = "stopped"
+	statusError   string = "error"
+)
+
 type Bot interface {
 	Name() string
 	Run() error
-	Stop() error
-	Done() <-chan struct{}
-	Err() error
+	Status() (string, error)
+	Stop()
 }
 
 type Grid struct {
@@ -35,9 +42,9 @@ type Grid struct {
 	// kraken
 	krakenAPI kraken.Kraken
 	token     string
-	// context
-	ctx    context.Context
-	cancel context.CancelFunc
+	// controller
+	stopChan chan error
+	err      error
 }
 
 var _ Bot = (*Grid)(nil)
@@ -50,6 +57,7 @@ func NewBot(logger *zap.Logger, config *Config, krakenAPI kraken.Kraken, dao dao
 		logger:    logger,
 		krakenAPI: krakenAPI,
 		dao:       dao,
+		stopChan:  make(chan error),
 	}
 }
 
@@ -57,29 +65,42 @@ func (b *Grid) Name() string {
 	return b.config.name
 }
 
-func (b *Grid) Done() <-chan struct{} {
-	return b.ctx.Done()
+func (b *Grid) Status() (string, error) {
+	status := b.status.Load()
+	if status == utils.On {
+		return statusRunning, nil
+	} else {
+		if b.err != nil {
+			return statusError, b.err
+		} else {
+			return statusStopped, nil
+		}
+	}
 }
 
 func (b *Grid) Err() error {
-	return b.ctx.Err()
+	return b.err
 }
 
 func (b *Grid) Run() error {
 	b.logger.Info("Starting bot...", zap.String("name", b.config.name))
-	b.ctx, b.cancel = context.WithCancel(context.Background())
 	utils.TurnOn(b.status)
+	go b.listenStop()
 	go b.mainloop()
 	return nil
 }
 
-func (b *Grid) Stop() error {
-	if utils.TurnOff(b.status) {
-		b.logger.Info("Stopping bot...", zap.String("name", b.config.name))
-		b.privateWS.Close()
-		b.publicWS.Close()
-	}
-	return nil
+func (b *Grid) Stop() {
+	b.stopChan <- errors.New("bot stopped by user")
+}
+
+func (b *Grid) listenStop() {
+	err := <-b.stopChan
+	b.logger.Error("Stopping bot...", zap.String("name", b.config.name), zap.Error(err))
+	utils.TurnOff(b.status)
+	b.privateWS.Close()
+	b.publicWS.Close()
+	close(b.stopChan)
 }
 
 func (b *Grid) mainloop() {
@@ -88,8 +109,7 @@ func (b *Grid) mainloop() {
 	// Get websocket token
 	token, err := b.krakenAPI.GetWebsocketToken()
 	if err != nil {
-		b.logger.Error(err.Error())
-		b.Stop()
+		b.stopChan <- err
 		return
 	}
 	b.token = token.Token
@@ -100,13 +120,11 @@ func (b *Grid) mainloop() {
 
 	// Subscribe to necessary channels
 	if err := b.krakenAPI.SubscribeTickers(b.publicWS, b.config.baseCoin+"/"+b.config.quoteCoin); err != nil {
-		b.logger.Error(err.Error())
-		b.Stop()
+		b.stopChan <- err
 		return
 	}
 	if err := b.krakenAPI.SubscribeExecutions(b.privateWS, b.token); err != nil {
-		b.logger.Error(err.Error())
-		b.Stop()
+		b.stopChan <- err
 		return
 	}
 }
@@ -121,15 +139,6 @@ func (b *Grid) newSocket(url string) *websocket.Socket {
 	}
 	socket.OnConnected = func(s *websocket.Socket) {
 		b.logger.Info("WebSocket connected", zap.String("url", s.Url))
-	}
-	socket.OnConnectError = func(err error, s *websocket.Socket) {
-		b.logger.Error("WebSocket connection error", zap.String("url", s.Url), zap.Error(err))
-		b.Stop()
-	}
-
-	socket.OnDisconnected = func(err error, s *websocket.Socket) {
-		s.Conn.Close()
-		b.Stop()
 	}
 
 	socket.OnBinaryMessage = b.OnBinaryMessage
@@ -148,8 +157,7 @@ func (b *Grid) OnTextMessage(data string, socket *websocket.Socket) {
 	var message any
 	err := json.Unmarshal(utils.StringToBytes(data), &message)
 	if err != nil {
-		b.logger.Error("WebSocket binary message error", zap.Error(err))
-		b.Stop()
+		b.stopChan <- err
 		return
 	}
 
@@ -161,14 +169,12 @@ func (b *Grid) OnTextMessage(data string, socket *websocket.Socket) {
 			if msgMap, ok := msg.(map[string]any); ok {
 				b.handleMapMessage(msgMap)
 			} else {
-				b.logger.Error("WebSocket text message error", zap.String("error", "message is not a map"))
-				b.Stop()
+				b.stopChan <- err
 				return
 			}
 		}
 	default:
-		b.logger.Error("WebSocket text message error", zap.String("error", "message is not a map or slice"))
-		b.Stop()
+		b.stopChan <- errors.New("message is not a map or slice")
 		return
 	}
 }
@@ -201,8 +207,8 @@ func (b *Grid) handleMapMessage(message map[string]any) {
 func (b *Grid) handleMethodResponse(message map[string]any) {
 	b.logger.Info("WebSocket method response", zap.Any("method", message["method"]), zap.Any("result", message["result"]), zap.Bool("success", message["success"].(bool)))
 	if success, ok := message["success"].(bool); !ok || !success {
-		b.logger.Error("WebSocket method response error", zap.Any("method", message["method"]), zap.Any("error", message["error"]))
-		b.Stop()
+		b.stopChan <- errors.New("WebSocket method response not successful")
+		return
 	}
 }
 
@@ -253,18 +259,16 @@ func (b *Grid) handleExecutionsChannel(message map[string]any) {
 		exec := execution.(map[string]any) // assume execution is a map, panic if not
 		orderID := exec["order_id"].(string)
 		userref := exec["order_userref"].(float64)
-		order, err := b.dao.GetOrder(b.ctx, int(userref))
+		order, err := b.dao.GetOrder(context.TODO(), int(userref))
 		if err != nil {
-			b.logger.Error("Failed to get order from database", zap.String("order_id", orderID), zap.Error(err))
-			b.Stop()
+			b.stopChan <- fmt.Errorf("failed to get order[%s] from database: %w", orderID, err)
 			return
 		}
 
 		order.Status = exec["exec_type"].(string)
-		err = b.dao.UpdateOrder(b.ctx, order.ID, map[string]any{"status": order.Status}) // Update order in database
+		err = b.dao.UpdateOrder(context.TODO(), order.ID, map[string]any{"status": order.Status}) // Update order in database
 		if err != nil {
-			b.logger.Error("Failed to update order in database", zap.String("order_id", orderID), zap.Error(err))
-			b.Stop()
+			b.stopChan <- fmt.Errorf("failed to update order[%s] in database: %w", orderID, err)
 			return
 		}
 		b.logger.Info("Order update",
@@ -286,10 +290,9 @@ func (b *Grid) handleExecutionsChannel(message map[string]any) {
 
 func (b *Grid) rebaseOrders() {
 	// cancel all orders
-	orders, err := b.dao.GetOpenOrders(b.ctx, b.config.name)
+	orders, err := b.dao.GetOpenOrders(context.TODO(), b.config.name)
 	if err != nil && err != dao.ErrNotFound {
-		b.logger.Error("Failed to get open orders from database", zap.Error(err))
-		b.Stop()
+		b.stopChan <- fmt.Errorf("failed to get open orders from database: %w", err)
 		return
 	}
 
@@ -301,8 +304,7 @@ func (b *Grid) rebaseOrders() {
 	if len(orders) > 0 {
 		err := b.krakenAPI.CancelOrderWithWebsocket(b.privateWS, b.token, orderIDs)
 		if err != nil {
-			b.logger.Error("Failed to cancel orders", zap.Error(err))
-			b.Stop()
+			b.stopChan <- fmt.Errorf("failed to cancel orders: %w", err)
 			return
 		}
 	}
@@ -329,10 +331,9 @@ func (b *Grid) addOrder(side kraken.Side, basePrice float64, multiplier int) {
 	order.Status = "pending"
 
 	// Save order to database
-	err := b.dao.CreateOrder(b.ctx, order)
+	err := b.dao.CreateOrder(context.TODO(), order)
 	if err != nil {
-		b.logger.Error("Failed to create order in database", zap.Error(err))
-		b.Stop()
+		b.stopChan <- fmt.Errorf("failed to create order in database: %w", err)
 		return
 	}
 
@@ -346,8 +347,7 @@ func (b *Grid) addOrder(side kraken.Side, basePrice float64, multiplier int) {
 		order.ID,
 	)
 	if err != nil {
-		b.logger.Error("Failed to place new order", zap.Error(err))
-		b.Stop()
+		b.stopChan <- fmt.Errorf("failed to place new order: %w", err)
 	}
 }
 
