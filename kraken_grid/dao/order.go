@@ -19,7 +19,7 @@ var (
 // CreateOrder creates a new order in the database
 func (dao *DaoImpl) CreateOrder(ctx context.Context, order *model.Order) error {
 	query, args := pg.ToSQL(pg.Insert(orderTable).
-		Columns("order_id", "bot", "exchange", "pair", "price", "amount", "side", "multipler", "order_status").
+		Columns("order_id", "bot", "exchange", "pair", "price", "amount", "side", "multiplier", "order_status").
 		Values("", order.Bot, order.Exchange, order.Pair, order.Price, order.Amount, order.Side, order.Multiplier, order.Status).
 		Suffix("RETURNING \"id\""))
 
@@ -36,7 +36,7 @@ func (dao *DaoImpl) GetOrder(ctx context.Context, id int) (*model.Order, error) 
 	var order model.Order
 
 	query, args := pg.ToSQL(pg.
-		Select("id", "order_id", "bot", "exchange", "pair", "price", "amount", "side", "multipler", "order_status", "created_at", "updated_at").
+		Select("id", "order_id", "bot", "exchange", "pair", "price", "amount", "side", "multiplier", "order_status", "created_at", "updated_at").
 		From(orderTable).
 		Where(sq.Eq{"id": id}))
 
@@ -54,7 +54,7 @@ func (dao *DaoImpl) GetOrdersByBot(ctx context.Context, bot string) ([]*model.Or
 	var orders []*model.Order
 
 	query, args := pg.ToSQL(pg.
-		Select("id", "order_id", "bot", "exchange", "pair", "price", "amount", "side", "multipler", "order_status", "created_at", "updated_at").
+		Select("id", "order_id", "bot", "exchange", "pair", "price", "amount", "side", "multiplier", "order_status", "created_at", "updated_at").
 		From(orderTable).
 		Where(sq.Eq{"bot": bot}))
 
@@ -72,7 +72,7 @@ func (db *DaoImpl) GetOpenOrders(ctx context.Context, bot string) ([]*model.Orde
 	var orders []*model.Order
 
 	query, args := pg.ToSQL(pg.
-		Select("id", "order_id", "bot", "exchange", "pair", "price", "amount", "side", "multipler", "order_status", "created_at", "updated_at").
+		Select("id", "order_id", "bot", "exchange", "pair", "price", "amount", "side", "multiplier", "order_status", "created_at", "updated_at").
 		From(orderTable).
 		Where(sq.Eq{"bot": bot, "status": "new"}))
 
