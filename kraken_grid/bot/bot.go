@@ -266,7 +266,7 @@ func (b *Grid) handleExecutionsChannel(message map[string]any) {
 		}
 
 		order.Status = exec["exec_type"].(string)
-		err = b.dao.UpdateOrder(context.TODO(), order.ID, map[string]any{"order_status": order.Status}) // Update order in database
+		err = b.dao.UpdateOrder(context.TODO(), order.ID, map[string]any{"ordere_id": orderID, "order_status": order.Status}) // Update order in database
 		if err != nil {
 			b.stopChan <- fmt.Errorf("failed to update order[%s] in database: %w", orderID, err)
 			return
