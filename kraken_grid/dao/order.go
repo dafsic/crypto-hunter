@@ -74,7 +74,7 @@ func (db *DaoImpl) GetOpenOrders(ctx context.Context, bot string) ([]*model.Orde
 	query, args := pg.ToSQL(pg.
 		Select("id", "order_id", "bot", "exchange", "pair", "price", "amount", "side", "multiplier", "order_status", "created_at", "updated_at").
 		From(orderTable).
-		Where(sq.Eq{"bot": bot, "status": "new"}))
+		Where(sq.Eq{"bot": bot, "order_status": "new"}))
 
 	db.logger.Debug("GetOpenOrders query", zap.String("query", query), zap.Any("args", args))
 	err := db.Transact(ctx, func(tx *sqlx.Tx) error {
